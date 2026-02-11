@@ -13,24 +13,25 @@
   register: mysql_connection
   ignore_errors: yes
 
-- name: Verify if MyBB database exists
-  mysql_db:
+- name: Getting a list of databases
+  mysql_query:
+    login_host: "{{ mybb_db_host }}"
     login_user: root
     login_password: "{{ mysql_root_password }}"
-    name: "{{ mybb_db_name }}"
-    state: dump
-  register: mybb_db_check
-  ignore_errors: yes
-  no_log: true
-  when: mysql_connection is success or mysql_connection is skipped
+    query: "SHOW DATABASES;"
+  register: databases_list
+
+- name: Set MyBB database exist flag
+  set_fact:
+    mybb_db_exist: "{{ mybb_db_name in databases_list.query_result[0] | map(attribute='Database') }}"
 
 - name: Set deployment required flag
   set_fact:
     deployment_required: >-
-      {{ 
-        not mybb_installed.stat.exists and 
+      {{
+        not mybb_installed.stat.exists and
         (mysql_connection is success or mysql_connection is skipped) and
-        mybb_db_check.failed 
+        not mybb_db_exist
       }}
   when: mybb_installed.stat is defined
 
@@ -171,8 +172,9 @@
 - name: Deployment completion message
   debug:
     msg:
-      - "MyBB deployment {{ 'completed successfully' if deployment_required else 'skipped - already installed or requirements not met' }}"
-      - "Installation directory: {{ mybb_install_dir }}"
+      - "{{ '✅  MyBB deployment completed successfully' if deployment_required else '❌  MyBB deployment skipped - already installed or requirements not met' }}"
+      - "MyBB version: {{ mybb_version }}"
+      - "MyBB directory: {{ mybb_install_dir }}"
       - "Database name: {{ mybb_db_name }}"
       - "Database user: {{ mybb_db_user }}"
   when: deployment_required is defined
