@@ -20,10 +20,12 @@
     login_password: "{{ mysql_root_password }}"
     query: "SHOW DATABASES;"
   register: databases_list
+  when: mysql_connection is success
 
 - name: Set MyBB database exist flag
   set_fact:
     mybb_db_exist: "{{ mybb_db_name in databases_list.query_result[0] | map(attribute='Database') }}"
+  when: databases_list is defined and databases_list.query_result is defined
 
 - name: Set deployment required flag
   set_fact:
