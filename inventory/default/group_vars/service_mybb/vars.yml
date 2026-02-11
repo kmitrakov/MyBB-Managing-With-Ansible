@@ -1,0 +1,8 @@
+---
+service_mybb_state: "deploy"
+
+mybb_backup_dir: "/var/backups/forum"
+
+# MyBB variables
+mybb_version: "1839"
+mybb_install_dir: "/var/www/html/forum"

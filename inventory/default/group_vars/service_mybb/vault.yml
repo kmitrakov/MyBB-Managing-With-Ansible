@@ -1,0 +1,6 @@
+---
+# MyBB database variables
+mybb_db_name: ""
+mybb_db_user: ""
+mybb_db_password: ""
+mybb_db_host: "localhost"

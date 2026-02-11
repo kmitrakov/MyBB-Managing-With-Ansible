@@ -1,0 +1,15 @@
+- name: Include tasks backup_application
+  include_tasks: backup_application.yml
+  when: service_mybb_state == "backup_application"
+
+- name: Include tasks backup_database
+  include_tasks: backup_database.yml
+  when: service_mybb_state == "backup_database"
+
+- name: Include tasks delete
+  include_tasks: delete.yml
+  when: service_mybb_state == "delete"
+
+- name: Include tasks deploy
+  include_tasks: deploy.yml
+  when: service_mybb_state == "deploy"
