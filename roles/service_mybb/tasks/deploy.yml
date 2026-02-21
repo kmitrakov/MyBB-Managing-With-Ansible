@@ -1,5 +1,5 @@
 ---
-- name: Check if MyBB is already installed
+- name: Check if MyBB is installed
   stat:
     path: "{{ mybb_install_dir }}/inc/config.php"
   register: mybb_installed

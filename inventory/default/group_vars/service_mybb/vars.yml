@@ -3,6 +3,9 @@ service_mybb_state: "deploy"
 
 mybb_backup_dir: "/var/backups/forum"
 
+timestamp: "{{ ansible_date_time.year }}-{{ ansible_date_time.month }}-{{ ansible_date_time.day }}_{{ ansible_date_time.hour }}-{{ ansible_date_time.minute }}-{{ ansible_date_time.second }}"
+mybb_backup_filename: "mybb_backup_{{ timestamp }}.tar.gz"
+
 # MyBB variables
 mybb_version: "1.8.39"
 mybb_install_dir: "/var/www/html/forum"
