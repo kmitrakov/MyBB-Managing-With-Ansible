@@ -21,7 +21,7 @@
 
 <p>
     <div>
-        <img src="" width="100%" alt="" />
+        <img src=".github/images/Deploy_v0.1.png" width="100%" alt="" />
     </div>
 </p>
 
@@ -151,6 +151,11 @@ mybb_db_host: "localhost"
 ansible-playbook -i inventory/default/hosts service_mybb.yml
 ```
 Плейбук скачает указанную версию MyBB, настроит базу данных, скопирует файлы и выполнит начальную конфигурацию.
+<p>
+    <div>
+        <img src=".github/images/Deploy_Console1_v0.1.png" width="100%" alt="" />
+    </div>
+</p>
 
 ### <a id="title2.2">Создание резервной копии существующего форума</a>
 1. В файле ```inventory/default/group_vars/service_mybb/vars.yml``` переменной ```service_mybb_state``` задайте значение ```backup```.
@@ -159,6 +164,11 @@ ansible-playbook -i inventory/default/hosts service_mybb.yml
 ansible-playbook -i inventory/default/hosts service_mybb.yml
 ```
 Архив с файлами форума и дамп базы данных будут сохранены в директории ```mybb_backup_dir```.
+<p>
+    <div>
+        <img src=".github/images/Backup_Console1_v0.1.png" width="100%" alt="" />
+    </div>
+</p>
 
 ### <a id="title2.3">Удаление существующего форума</a>
 1. В файле ```inventory/default/group_vars/service_mybb/vars.yml``` переменной ```service_mybb_state``` задайте значение ```delete```.
@@ -167,6 +177,11 @@ ansible-playbook -i inventory/default/hosts service_mybb.yml
 ansible-playbook -i inventory/default/hosts service_mybb.yml
 ```
 Внимание, эта операция необратима.
+<p>
+    <div>
+        <img src=".github/images/Delete_Console1_v0.1.png" width="100%" alt="" />
+    </div>
+</p>
 
 ## <a id="title3">Рекомендации</a>
 ### <a id="title3.1">Шифрование чувствительных данных</a>
