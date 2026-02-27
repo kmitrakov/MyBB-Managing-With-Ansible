@@ -19,8 +19,6 @@
   </p>
 </div>
 
----
-
 <p>
     <div>
         <img src="" width="100%" alt="" />
