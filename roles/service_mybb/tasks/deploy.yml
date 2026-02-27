@@ -1,0 +1,182 @@
+---
+- name: Check if MyBB is installed
+  stat:
+    path: "{{ mybb_install_dir }}/inc/config.php"
+  register: mybb_installed
+
+- name: Check MySQL connection
+  wait_for:
+    host: "{{ mybb_db_host }}"
+    port: 3306
+    timeout: 30
+    state: started
+  register: mysql_connection
+  ignore_errors: yes
+
+- name: Getting a list of databases
+  mysql_query:
+    login_host: "{{ mybb_db_host }}"
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    query: "SHOW DATABASES;"
+  register: databases_list
+  when: mysql_connection is success
+
+- name: Set MyBB database exist flag
+  set_fact:
+    mybb_db_exist: "{{ mybb_db_name in databases_list.query_result[0] | map(attribute='Database') }}"
+  when: databases_list is defined and databases_list.query_result is defined
+
+- name: Set deployment required flag
+  set_fact:
+    deployment_required: >-
+      {{
+        not mybb_installed.stat.exists and
+        (mysql_connection is success or mysql_connection is skipped) and
+        not mybb_db_exist
+      }}
+  when: mybb_installed.stat is defined
+
+- name: Update apt package cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: deployment_required
+
+- name: Install required packages
+  apt:
+    name:
+      - wget
+      - unzip
+    state: present
+  when: deployment_required
+
+- name: Create MySQL database for MyBB
+  mysql_db:
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    name: "{{ mybb_db_name }}"
+    state: present
+  when: deployment_required
+  no_log: true
+
+- name: Create MySQL user for MyBB
+  mysql_user:
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    name: "{{ mybb_db_user }}"
+    password: "{{ mybb_db_password }}"
+    host: "{{ mybb_db_host }}"
+    priv: "{{ mybb_db_name }}.*:ALL"
+    state: present
+  when: deployment_required
+  no_log: true
+
+- name: Download MyBB
+  get_url:
+    url: "https://resources.mybb.com/downloads/mybb_{{ mybb_version | replace('.', '') }}.zip"
+    dest: "{{ tmp_dir }}/mybb_{{ mybb_version }}.zip"
+    timeout: 60
+    validate_certs: yes
+  when: deployment_required
+  register: download_result
+  retries: 3
+  delay: 5
+  until: download_result is success
+
+- name: Create extract directory
+  file:
+    path: "{{ tmp_dir }}/mybb_{{ mybb_version }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  when: deployment_required
+
+- name: Extract MyBB
+  unarchive:
+    src: "{{ tmp_dir }}/mybb_{{ mybb_version }}.zip"
+    dest: "{{ tmp_dir }}/mybb_{{ mybb_version }}"
+    remote_src: yes
+  when: deployment_required
+
+- name: Create forum directory
+  file:
+    path: "{{ mybb_install_dir }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  when: deployment_required
+
+- name: Copy MyBB files to forum directory
+  copy:
+    src: "{{ tmp_dir }}/mybb_{{ mybb_version }}/Upload/"
+    dest: "{{ mybb_install_dir }}/"
+    remote_src: yes
+    owner: www-data
+    group: www-data
+    mode: '0755'
+  when: deployment_required
+
+- name: Set permissions for MyBB directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: '0777'
+  loop:
+    - "{{ mybb_install_dir }}/inc/languages"
+    - "{{ mybb_install_dir }}/inc/plugins"
+    - "{{ mybb_install_dir }}/inc/settings"
+    - "{{ mybb_install_dir }}/inc/themes"
+    - "{{ mybb_install_dir }}/cache"
+    - "{{ mybb_install_dir }}/uploads"
+    - "{{ mybb_install_dir }}/uploads/avatars"
+  when: deployment_required
+
+- name: Set permissions for MyBB files
+  file:
+    path: "{{ item }}"
+    state: touch
+    owner: www-data
+    group: www-data
+    mode: '0666'
+  loop:
+    - "{{ mybb_install_dir }}/inc/config.php"
+    - "{{ mybb_install_dir }}/inc/settings.php"
+  when: deployment_required
+  changed_when: false
+
+- name: Configure PHP-FPM
+  lineinfile:
+    path: /etc/php/8.3/fpm/php.ini
+    regexp: "^{{ item.regexp }}"
+    line: "{{ item.line }}"
+  loop:
+    - { regexp: '^upload_max_filesize', line: 'upload_max_filesize = 20M' }
+    - { regexp: '^post_max_size', line: 'post_max_size = 20M' }
+    - { regexp: '^memory_limit', line: 'memory_limit = 128M' }
+    - { regexp: '^max_execution_time', line: 'max_execution_time = 300' }
+  notify: Restart PHP-FPM
+  when: deployment_required
+
+- name: Clean up temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ tmp_dir }}/mybb_{{ mybb_version }}.zip"
+    - "{{ tmp_dir }}/mybb_{{ mybb_version }}"
+  when: deployment_required
+
+- name: Deployment completion message
+  debug:
+    msg:
+      - "{{ '✅  MyBB deployment completed successfully' if deployment_required else '❌  MyBB deployment skipped - already installed or requirements not met' }}"
+      - "MyBB version: {{ mybb_version }}"
+      - "MyBB directory: {{ mybb_install_dir }}"
+      - "Database name: {{ mybb_db_name }}"
+      - "Database user: {{ mybb_db_user }}"
+  when: deployment_required is defined

@@ -1,0 +1,134 @@
+---
+- name: Check if MyBB is installed
+  stat:
+    path: "{{ mybb_install_dir }}/inc/config.php"
+  register: mybb_installed
+
+- name: Check if backup directory exists
+  stat:
+    path: "{{ mybb_backup_dir }}"
+  register: backup_dir
+
+- name: Check MySQL connection
+  wait_for:
+    host: "{{ mybb_db_host }}"
+    port: 3306
+    timeout: 10
+    state: started
+  register: mysql_connection
+  ignore_errors: yes
+
+- name: Set backup required flag
+  set_fact:
+    backup_required: >-
+      {{
+        mybb_installed.stat.exists and
+        (mysql_connection is success or mysql_connection is skipped)
+      }}
+  when: mybb_installed.stat is defined
+
+- name: Fail if MyBB is not installed
+  fail:
+    msg: "❌  MyBB is not installed at {{ mybb_install_dir }}. Backup cannot be created."
+  when: not mybb_installed.stat.exists
+
+- name: Fail if MySQL is not accessible
+  fail:
+    msg: "❌  MySQL server is not accessible at {{ mybb_db_host }}:3306. Backup cannot be created."
+  when: mysql_connection is failed
+
+- name: Create backup directory
+  file:
+    path: "{{ mybb_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: backup_required
+
+- name: Create temporary directory for backup
+  tempfile:
+    state: directory
+    suffix: mybb_backup
+  register: temp_backup_dir
+  when: backup_required
+
+- name: Create database dump
+  mysql_db:
+    login_host: "{{ mybb_db_host }}"
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    name: "{{ mybb_db_name }}"
+    state: dump
+    target: "{{ temp_backup_dir.path }}/mybb_database.sql"
+  when: backup_required
+  no_log: true
+
+- name: Copy MyBB files to temporary directory
+  copy:
+    src: "{{ mybb_install_dir }}/"
+    dest: "{{ temp_backup_dir.path }}/mybb_files/"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: preserve
+  when: backup_required
+
+- name: Create backup archive
+  archive:
+    path:
+      - "{{ temp_backup_dir.path }}/mybb_database.sql"
+      - "{{ temp_backup_dir.path }}/mybb_files/"
+    dest: "{{ mybb_backup_dir }}/{{ mybb_backup_filename }}"
+    format: gz
+    remove: no
+  when: backup_required
+  register: archive_result
+
+- name: Clean up temporary directory
+  file:
+    path: "{{ temp_backup_dir.path }}"
+    state: absent
+  when: backup_required
+
+- name: Verify backup archive
+  stat:
+    path: "{{ mybb_backup_dir }}/{{ mybb_backup_filename }}"
+  register: backup_file
+  when: backup_required
+
+- name: Get backup directory contents
+  find:
+    paths: "{{ mybb_backup_dir }}"
+    patterns: "*.tar.gz"
+    file_type: file
+  register: backup_files
+  when: backup_required
+
+- name: Display backup summary
+  debug:
+    msg:
+      - "{{ '✅  MyBB backup completed successfully' if backup_file.stat.exists else '❌  MyBB backup failed' }}"
+      - "Backup timestamp: {{ timestamp }}"
+      - "Backup filename: {{ mybb_backup_filename }}"
+      - "Backup location: {{ mybb_backup_dir }}/{{ mybb_backup_filename }}"
+      - "Backup size: {{ backup_file.stat.size | default(0) | filesizeformat if backup_file.stat.exists else 'N/A' }}"
+      - ""
+      - "Backup contents:"
+      - "• MyBB directory: {{ mybb_install_dir }}"
+      - "• Database: {{ mybb_db_name }}"
+      - "• Database user: {{ mybb_db_user }}"
+      - ""
+      - "Total backups in directory: {{ backup_files.files | length if backup_files.files is defined else 0 }}"
+      - "Backup directory: {{ mybb_backup_dir }}"
+  when: backup_required
+
+- name: Display error summary if backup failed
+  debug:
+    msg:
+      - "❌  MyBB backup failed"
+      - "Reason: {{ 'Backup archive not created' if not backup_file.stat.exists else 'Unknown error' }}"
+      - "Check the backup directory: {{ mybb_backup_dir }}"
+      - "Check if MyBB is installed at: {{ mybb_install_dir }}"
+      - "Check MySQL connection to: {{ mybb_db_host }}"
+  when: not backup_required or not backup_file.stat.exists

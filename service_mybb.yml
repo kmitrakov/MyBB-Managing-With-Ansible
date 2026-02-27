@@ -1,0 +1,5 @@
+---
+- hosts: service_mybb
+  become: true
+  roles:
+    - service_mybb

@@ -1,0 +1,140 @@
+---
+- name: Check if MyBB is installed
+  stat:
+    path: "{{ mybb_install_dir }}/inc/config.php"
+  register: mybb_installed
+
+- name: Check MySQL connection
+  wait_for:
+    host: "{{ mybb_db_host }}"
+    port: 3306
+    timeout: 30
+    state: started
+  register: mysql_connection
+  ignore_errors: yes
+
+- name: Getting a list of databases
+  mysql_query:
+    login_host: "{{ mybb_db_host }}"
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    query: "SHOW DATABASES;"
+  register: databases_list
+  when: mysql_connection is success
+
+- name: Set MyBB database exist flag
+  set_fact:
+    mybb_db_exist: "{{ mybb_db_name in databases_list.query_result[0] | map(attribute='Database') }}"
+  when: databases_list is defined and databases_list.query_result is defined
+
+- name: Get MySQL users list
+  mysql_query:
+    login_host: "{{ mybb_db_host }}"
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    query: "SELECT User, Host FROM mysql.user;"
+  register: users_list
+  when: mysql_connection is success
+
+- name: Set MyBB user exist flag
+  set_fact:
+    mybb_user_exist: >-
+      {{
+        users_list.query_result[0] | 
+        selectattr('User', 'equalto', mybb_db_user) | 
+        list | length > 0
+      }}
+  when: users_list is defined and users_list.query_result is defined
+
+- name: Set deletion required flag
+  set_fact:
+    deletion_required: >-
+      {{
+        mybb_installed.stat.exists or
+        (mybb_db_exist is defined and mybb_db_exist) or
+        (mybb_user_exist is defined and mybb_user_exist)
+      }}
+  when: mybb_installed.stat is defined
+
+- name: Initialize deletion results
+  set_fact:
+    deletion_results:
+      directory_deleted: false
+      database_deleted: false
+      user_deleted: false
+      errors: []
+#  when: deletion_required
+
+- name: Delete MyBB directory
+  file:
+    path: "{{ mybb_install_dir }}"
+    state: absent
+  when: deletion_required and mybb_installed.stat.exists
+  register: directory_deletion
+  ignore_errors: yes
+
+- name: Update directory deletion result
+  set_fact:
+    deletion_results: >-
+      {{
+        deletion_results | combine({
+          'directory_deleted': directory_deletion is success,
+          'errors': deletion_results.errors + (['Failed to delete directory'] if directory_deletion is failed else [])
+        })
+      }}
+  when: deletion_required and directory_deletion is defined
+
+- name: Drop MySQL user for MyBB
+  mysql_user:
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    name: "{{ mybb_db_user }}"
+    host: "{{ mybb_db_host }}"
+    state: absent
+  when: deletion_required and mybb_user_exist is defined and mybb_user_exist
+  register: user_deletion
+  ignore_errors: yes
+  no_log: true
+
+- name: Update user deletion result
+  set_fact:
+    deletion_results: >-
+      {{
+        deletion_results | combine({
+          'user_deleted': user_deletion is success,
+          'errors': deletion_results.errors + (['Failed to delete database user'] if user_deletion is failed else [])
+        })
+      }}
+  when: deletion_required and user_deletion is defined
+
+- name: Drop MySQL database for MyBB
+  mysql_db:
+    login_user: root
+    login_password: "{{ mysql_root_password }}"
+    name: "{{ mybb_db_name }}"
+    state: absent
+  when: deletion_required and mybb_db_exist is defined and mybb_db_exist
+  register: database_deletion
+  ignore_errors: yes
+  no_log: true
+
+- name: Update database deletion result
+  set_fact:
+    deletion_results: >-
+      {{
+        deletion_results | combine({
+          'database_deleted': database_deletion is success,
+          'errors': deletion_results.errors + (['Failed to delete database'] if database_deletion is failed else [])
+        })
+      }}
+  when: deletion_required and database_deletion is defined
+
+- name: Deletion completion message
+  debug:
+    msg:
+      - "{{ '✅  MyBB deletion completed successfully' if deletion_required and deletion_results.errors | length == 0 else '⚠️  MyBB deletion completed with errors' if deletion_required else '❌  MyBB deletion skipped - no MyBB installation found' }}"
+      - "Deletion results:"
+      - "• Directory ({{ mybb_install_dir }}): {{ '✅  Deleted' if deletion_results.directory_deleted else '⚠️  Not found' if deletion_required and not mybb_installed.stat.exists else '❌  Failed' }}"
+      - "• Database ({{ mybb_db_name }}): {{ '✅  Deleted' if deletion_results.database_deleted else '⚠️  Not found' if deletion_required and not mybb_db_exist else '❌  Failed' }}"
+      - "• Database user ({{ mybb_db_user }}): {{ '✅  Deleted' if deletion_results.user_deleted else '⚠️  Not found' if deletion_required and not mybb_user_exist else '❌  Failed' }}"
+  when: deletion_required is defined
